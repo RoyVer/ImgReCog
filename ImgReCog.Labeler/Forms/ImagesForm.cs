@@ -27,6 +27,13 @@ namespace ImgReCog.Labeler.Forms
       base.OnShown(e);
 
       string directory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "unprocessed");
+
+      // Check if the directory exists, if not, create it
+      if (!Directory.Exists(directory))
+      {
+        Directory.CreateDirectory(directory);
+      }
+
       string[] files = Directory.GetFiles(directory, "*.jpg", SearchOption.AllDirectories);
 
       foreach (string file in files)
