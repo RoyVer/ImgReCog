@@ -1,21 +1,35 @@
-﻿using System;
-using System.Windows.Forms;
+﻿using ImgReCog.Labeler.ScreenLogic;
+using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
-using ImgReCog.Labeler.Screen;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
 using Timer = System.Windows.Forms.Timer;
 
 namespace ImgReCog.Labeler.Forms
 {
   public class MainForm : Form
   {
+    private const int WM_HOTKEY = 0x0312;
+    private const int MOD_CONTROL = 0x0002;
+    private const int MOD_SHIFT = 0x0004;
+    private const int MOD_ALT = 0x0001;
+    private const int VK_1 = 0x31;
+
+    [DllImport("user32.dll")]
+    public static extern bool RegisterHotKey(IntPtr hWnd, int id, int fsModifiers, int vlc);
+
+    [DllImport("user32.dll")]
+    public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
     private MenuStrip menuStrip;
     private ToolStripTextBox intervalTextBox;
     private ToolStripComboBox windowsComboBox;
     private ToolStripButton startCaptureButton;
     private ToolStripButton stopCaptureButton;
-    private PictureBox pictureBox;
+    private FlowLayoutPanel flowLayoutPanel;
     private Timer captureTimer;
 
     public MainForm()
@@ -27,13 +41,10 @@ namespace ImgReCog.Labeler.Forms
       menuStrip = new MenuStrip();
       intervalTextBox = new ToolStripTextBox();
       windowsComboBox = new ToolStripComboBox();
-      windowsComboBox.Width = 100;
       startCaptureButton = new ToolStripButton("Start Capture");
       stopCaptureButton = new ToolStripButton("Stop Capture");
-      ToolStripButton viewImagesButton = new ToolStripButton("View Images");
-      menuStrip.Items.Add(viewImagesButton);
 
-      pictureBox = new PictureBox();
+      flowLayoutPanel = new FlowLayoutPanel();
       captureTimer = new Timer();
 
       menuStrip.Items.Add(new ToolStripLabel("Interval:"));
@@ -43,14 +54,17 @@ namespace ImgReCog.Labeler.Forms
       menuStrip.Items.Add(startCaptureButton);
       menuStrip.Items.Add(stopCaptureButton);
 
-      pictureBox.Dock = DockStyle.Fill;
+      ToolStripButton deleteScreenshotsButton = new ToolStripButton("Delete Screenshots");
+      menuStrip.Items.Add(deleteScreenshotsButton);
+      deleteScreenshotsButton.Click += DeleteScreenshotsButton_Click;
+
+      flowLayoutPanel.Dock = DockStyle.Fill;
 
       Controls.Add(menuStrip);
-      Controls.Add(pictureBox);
+      Controls.Add(flowLayoutPanel);
 
       startCaptureButton.Click += StartCaptureButton_Click;
       stopCaptureButton.Click += StopCaptureButton_Click;
-      viewImagesButton.Click += ViewImagesButton_Click;
       captureTimer.Tick += CaptureTimer_Tick;
     }
 
@@ -58,19 +72,78 @@ namespace ImgReCog.Labeler.Forms
     {
       base.OnShown(e);
 
-      foreach (Process process in Process.GetProcesses())
+      foreach (Process process in Process.GetProcesses().OrderBy(p => p.ProcessName))
       {
         if (!string.IsNullOrEmpty(process.MainWindowTitle))
         {
-          windowsComboBox.Items.Add(process.MainWindowTitle);
+          windowsComboBox.Items.Add(process.ProcessName);
         }
       }
+
+      // Register the hotkey
+      RegisterHotKey(this.Handle, 0, MOD_CONTROL | MOD_SHIFT | MOD_ALT, VK_1);
+
+      LoadImages();
     }
 
-    private void ViewImagesButton_Click(object sender, EventArgs e)
+    private void DeleteScreenshotsButton_Click(object sender, EventArgs e)
     {
-      ImagesForm imagesForm = new ImagesForm();
-      imagesForm.Show();
+      string directory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "unprocessed");
+      if (Directory.Exists(directory))
+      {
+        // Unload the images from the PictureBox controls
+        foreach (Control control in Controls)
+        {
+          if (control is PictureBox pictureBox)
+          {
+            pictureBox.Image?.Dispose();
+            pictureBox.Image = null;
+          }
+        }
+
+        // Delete the files
+        string[] files = Directory.GetFiles(directory, "*.jpg", SearchOption.AllDirectories);
+        foreach (string file in files)
+        {
+          try
+          {
+            File.Delete(file);
+          }
+          catch (IOException)
+          {
+            // The file is in use and cannot be deleted, skip it
+          }
+        }
+      }
+      LoadImages();
+    }
+
+
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+      base.OnFormClosing(e);
+
+      // Unregister the hotkey
+      UnregisterHotKey(this.Handle, 0);
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+      base.WndProc(ref m);
+
+      if (m.Msg == WM_HOTKEY)
+      {
+        // Stop the capture
+        captureTimer.Stop();
+
+        // Restore the application window
+        this.WindowState = FormWindowState.Normal;
+
+        // Bring the application window to the foreground
+        ScreenHandling.SetForegroundWindow(this.Handle);
+
+        LoadImages();
+      }
     }
 
     private void StartCaptureButton_Click(object sender, EventArgs e)
@@ -87,39 +160,80 @@ namespace ImgReCog.Labeler.Forms
 
     private void CaptureTimer_Tick(object sender, EventArgs e)
     {
-      string windowTitle = windowsComboBox.SelectedItem.ToString();
-      Process[] processes = Process.GetProcesses();
-      Process targetProcess = null;
+      string processName = windowsComboBox.SelectedItem.ToString();
+      Process[] processes = Process.GetProcessesByName(processName);
 
-      foreach (Process process in processes)
+      if (processes.Length > 0)
       {
-        if (process.MainWindowTitle == windowTitle)
-        {
-          targetProcess = process;
-          break;
-        }
-      }
+        Process targetProcess = processes[0];
 
-      if (targetProcess != null)
-      {
         // Minimize the application window
         this.WindowState = FormWindowState.Minimized;
 
         // Allow the window to fully minimize
         Application.DoEvents();
 
+        // Bring the target window to the foreground
+        ScreenHandling.SetForegroundWindow(targetProcess.MainWindowHandle);
+
+        // Allow the target window to fully come to the foreground
+        Application.DoEvents();
+
         IntPtr windowHandle = targetProcess.MainWindowHandle;
-        Bitmap screenshot = Screen.Capture.CaptureScreenshot(windowHandle);
-        Screen.Capture.SaveScreenshot(screenshot, windowTitle);
-
-        pictureBox.Image = screenshot;
-
-        // Restore the application window
-        this.WindowState = FormWindowState.Normal;
+        Bitmap screenshot = ScreenHandling.CaptureScreenshotFullWindow(windowHandle);
+        ScreenHandling.SaveScreenshot(screenshot, processName);
       }
-      else
+    }
+
+    private void LoadImages()
+    {
+      flowLayoutPanel.Controls.Clear();
+
+      string directory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "unprocessed");
+      string[] files = Directory.GetFiles(directory, "*.jpg", SearchOption.AllDirectories);
+
+      foreach (string file in files)
       {
-        // Handle the case where the process was not found
+        PictureBox pictureBox = new PictureBox();
+
+        // Load the image in a way that doesn't lock the file
+        try
+        {
+          byte[] imageBytes = File.ReadAllBytes(file);
+          using (MemoryStream ms = new MemoryStream(imageBytes))
+          {
+            pictureBox.Image = new Bitmap(ms);
+          }
+        }
+        catch (IOException ex)
+        {
+          // If the file is in use, skip it
+          if (ex.HResult == -2147024864) // The process cannot access the file because it is being used by another process
+          {
+            continue;
+          }
+          else
+          {
+            MessageBox.Show($"An error occurred while trying to load the image: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            continue;
+          }
+        }
+
+        pictureBox.SizeMode = PictureBoxSizeMode.Zoom;
+        pictureBox.Width = 100;
+        pictureBox.Height = 100;
+        pictureBox.Padding = new Padding(10);
+        pictureBox.DoubleClick += (s, a) =>
+        {
+          var psi = new ProcessStartInfo
+          {
+            FileName = file,
+            UseShellExecute = true
+          };
+          Process.Start(psi);
+        };
+
+        flowLayoutPanel.Controls.Add(pictureBox);
       }
     }
   }
