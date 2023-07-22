@@ -26,13 +26,16 @@ namespace ImgReCog.Labeler.Forms
 
     private MenuStrip menuStrip;
     private ToolStripTextBox intervalTextBox;
-    private ToolStripComboBox windowsComboBox;
+    private ToolStripMenuItem processSelector;
     private ToolStripMenuItem captureOptionsMenuItem;
     private ToolStripMenuItem startWindowCaptureMenuItem;
     private ToolStripMenuItem startFullscreenCaptureMenuItem;
     private ToolStripMenuItem stopCaptureMenuItem;
     private FlowLayoutPanel flowLayoutPanel;
+    private ToolStripLabel _mnuLabelProcess;
     private Timer captureTimer;
+
+    private Process _selectedProcess;
 
     public MainForm()
     {
@@ -56,17 +59,17 @@ namespace ImgReCog.Labeler.Forms
     private void CreateMenu()
     {
       menuStrip = new MenuStrip();
+      _mnuLabelProcess = new ToolStripLabel("Selected process");
       intervalTextBox = new ToolStripTextBox();
-      windowsComboBox = new ToolStripComboBox();
+      processSelector = new ToolStripMenuItem("Select process to capture");
       captureOptionsMenuItem = new ToolStripMenuItem("Capture options");
       startWindowCaptureMenuItem = new ToolStripMenuItem("Start Window capture");
       startFullscreenCaptureMenuItem = new ToolStripMenuItem("Start fullscreen Windows capture");
       stopCaptureMenuItem = new ToolStripMenuItem("Stop recording");
 
+      menuStrip.Items.Add(processSelector);
       menuStrip.Items.Add(new ToolStripLabel("Interval:"));
       menuStrip.Items.Add(intervalTextBox);
-      menuStrip.Items.Add(new ToolStripLabel("Window:"));
-      menuStrip.Items.Add(windowsComboBox);
       menuStrip.Items.Add(captureOptionsMenuItem);
 
       captureOptionsMenuItem.DropDownItems.Add(startWindowCaptureMenuItem);
@@ -77,22 +80,47 @@ namespace ImgReCog.Labeler.Forms
       menuStrip.Items.Add(deleteScreenshotsButton);
       deleteScreenshotsButton.Click += DeleteScreenshotsButton_Click;
 
+      _mnuLabelProcess.Alignment = ToolStripItemAlignment.Right;
+      _mnuLabelProcess.TextAlign = ContentAlignment.MiddleRight;
+      menuStrip.Items.Add(_mnuLabelProcess);
+      processSelector.Click += OpenProcessSelector;
       startWindowCaptureMenuItem.Click += StartWindowCaptureMenuItem_Click;
       startFullscreenCaptureMenuItem.Click += StartFullscreenCaptureMenuItem_Click;
       stopCaptureMenuItem.Click += StopCaptureMenuItem_Click;
     }
 
+    private async void OpenProcessSelector(object? sender, EventArgs e)
+    {
+      try
+      {
+        UseWaitCursor = true;
+        using (var dlg = ServiceLocator.GetService<ProcessSelectorDialog>())
+        {
+          await dlg.InitializeAsync();
+          if (dlg.ShowDialog() == DialogResult.OK)
+          {
+            if (dlg.SelectedProcess != null)
+            {
+              _selectedProcess = dlg.SelectedProcess;
+              _mnuLabelProcess.Text = $"Selected process: {_selectedProcess.ProcessName}";
+            }
+          }
+
+        }
+      }
+      catch (Exception ex)
+      {
+        MessageBox.Show(ex.Message);
+      }
+      finally
+      {
+        UseWaitCursor = false;
+      }
+    }
+
     protected override void OnShown(EventArgs e)
     {
       base.OnShown(e);
-
-      foreach (Process process in Process.GetProcesses().OrderBy(p => p.ProcessName))
-      {
-        if (!string.IsNullOrEmpty(process.MainWindowTitle))
-        {
-          windowsComboBox.Items.Add(process.ProcessName);
-        }
-      }
 
       // Register the hotkey
       RegisterHotKey(this.Handle, 0, MOD_CONTROL | MOD_SHIFT | MOD_ALT, VK_1);
@@ -183,22 +211,20 @@ namespace ImgReCog.Labeler.Forms
     {
       try
       {
-        string processName = windowsComboBox.SelectedItem.ToString();
-        var process = Process.GetProcessesByName(processName).Where(p => !string.IsNullOrWhiteSpace(p.MainWindowTitle)).FirstOrDefault();
-        if (process != null)
+        if (_selectedProcess != null)
         {
-          IntPtr windowHandle = process.MainWindowHandle;
+          IntPtr windowHandle = _selectedProcess.MainWindowHandle;
 
           if (this.WindowState == FormWindowState.Minimized)
           {
-            WindowHandler.MaximizeWindow(process);
+            WindowHandler.MaximizeWindow(windowHandle);
             Bitmap screenshot = ScreenHandling.CaptureWindowsScreenshot(windowHandle);
-            ScreenHandling.SaveScreenshot(screenshot, processName);
+            ScreenHandling.SaveScreenshot(screenshot, _selectedProcess.ProcessName);
           }
           else
           {
             Bitmap screenshot = ScreenHandling.CaptureWindowsScreenshot(windowHandle);
-            ScreenHandling.SaveScreenshot(screenshot, processName);
+            ScreenHandling.SaveScreenshot(screenshot, _selectedProcess.ProcessName);
           }
         }
       }

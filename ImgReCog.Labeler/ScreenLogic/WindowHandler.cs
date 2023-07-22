@@ -40,6 +40,11 @@ namespace ImgReCog.Labeler.ScreenLogic
       ShowWindow(windowHandle, SW_MINIMIZE);
     }
 
+    public static void MoveWindow(IntPtr windowHandle, int left, int top, int height, int width)
+    {
+      MoveWindow(windowHandle, left, top, width, height, true);
+    }
+
     public static void MoveWindowToLeftHalf(IntPtr windowHandle)
     {
       var screenResolution = new ScreenResolution();

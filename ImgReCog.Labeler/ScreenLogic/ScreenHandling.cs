@@ -28,43 +28,47 @@ namespace ImgReCog.Labeler.ScreenLogic
 
     public static Bitmap CaptureWindowsScreenshot(IntPtr windowHandle)
     {
-      int removeHeightPixels = 10;
-      int removeWidthPixels = 22;
-      int shiftTop = 6;
-      int shiftLeft = 0;
-      var screenResolution = new ScreenResolution();
-      int titleBarHeight = screenResolution.GetTitleBarHeight() + removeHeightPixels;
-
-      if (!ScreenHandling.SetForegroundWindow(windowHandle))
+      Bitmap bitmap = null;
+      try
       {
-        throw new Exception("Can't get WindowHandle and put it to the foreground");
-      }
+        int removeHeightPixels = 10;
+        int removeWidthPixels = 22;
+        int shiftTop = 4;
+        int shiftLeft = 0;
+        var screenResolution = ServiceLocator.GetService<ScreenResolution>();
+        int titleBarHeight = screenResolution.GetTitleBarHeight() + removeHeightPixels;
 
-      if (WindowsHasNegativeValues(windowHandle))
+        if (!ScreenHandling.SetForegroundWindow(windowHandle))
+        {
+          throw new Exception("Can't get WindowHandle and put it to the foreground");
+        }
+
+        GetWindowRect(windowHandle, out RECT rect);
+
+        int width = rect.Right - rect.Left;
+        int height = rect.Bottom - rect.Top;
+
+        if (rect.Left < 0 || rect.Top < 0)
+        {
+          WindowHandler.MoveWindow(windowHandle, 0, 0, height, width);
+        }
+
+
+        width = (int)(width * screenResolution.ScalingFactor) - removeWidthPixels;
+        height = (int)(height * screenResolution.ScalingFactor) - titleBarHeight - removeHeightPixels;
+
+        bitmap = new Bitmap(width, height);
+        var graphics = Graphics.FromImage(bitmap);
+
+        graphics.CopyFromScreen(((int)(rect.Left * screenResolution.ScalingFactor) + (int)(removeWidthPixels / 2)) + shiftLeft,
+                                (int)((rect.Top * screenResolution.ScalingFactor) + titleBarHeight) + shiftTop, 0, 0,
+                                new Size(width, height));
+
+      }
+      catch (Exception ex)
       {
-        WindowHandler.MoveWindowToLeftHalf(windowHandle);
+        MessageBox.Show(ex.Message);
       }
-      
-      GetWindowRect(windowHandle, out RECT rect);
-
-      if (rect.Left < 0 || rect.Top < 0)
-      {
-        throw new Exception("Can't get WindowHandle");
-      }
-      
-      int width = rect.Right - rect.Left;
-      int height = rect.Bottom - rect.Top;
-
-      width = (int)(width * screenResolution.ScalingFactor) - removeWidthPixels;
-      height = (int)(height * screenResolution.ScalingFactor) - titleBarHeight - removeHeightPixels;
-
-      var bitmap = new Bitmap(width, height);
-      var graphics = Graphics.FromImage(bitmap);
-
-      graphics.CopyFromScreen(((int)(rect.Left * screenResolution.ScalingFactor) + (int)(removeWidthPixels / 2)) + shiftLeft,
-                              (int)((rect.Top * screenResolution.ScalingFactor) + titleBarHeight) + shiftTop, 0, 0,
-                              new Size(width, height));
-
       return bitmap;
     }
 
@@ -94,7 +98,7 @@ namespace ImgReCog.Labeler.ScreenLogic
 
       try
       {
-        bitmap.Save(filename, System.Drawing.Imaging.ImageFormat.Jpeg);
+        bitmap.Save(filename, ImageFormat.Jpeg);
       }
       catch (Exception ex)
       {
