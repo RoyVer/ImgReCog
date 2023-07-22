@@ -59,6 +59,11 @@ namespace ImgReCog.Labeler.ScreenLogic
       return (int)(GetSystemMetrics(SM_CYCAPTION) * ScalingFactor);
     }
 
+    public static int GetTaskBarHeight()
+    {
+      return Screen.PrimaryScreen.Bounds.Height - Screen.PrimaryScreen.WorkingArea.Height;
+    }
+
     public int ScreenWidth { get; private set; }
     public int ScreenHeight { get; private set; }
     public decimal ScalingFactor { get; private set; }

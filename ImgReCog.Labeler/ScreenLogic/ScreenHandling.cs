@@ -26,48 +26,60 @@ namespace ImgReCog.Labeler.ScreenLogic
       public int Bottom;
     }
 
-    public static Bitmap CaptureScreenshot(IntPtr windowHandle)
+    public static Bitmap CaptureWindowsScreenshot(IntPtr windowHandle)
     {
-      if (GetWindowRect(windowHandle, out RECT rect))
-      {
-        int width = rect.Right - rect.Left;
-        int height = rect.Bottom - rect.Top;
-
-        Bitmap bitmap = new Bitmap(width, height);
-        Graphics graphics = Graphics.FromImage(bitmap);
-
-        graphics.CopyFromScreen(rect.Left, rect.Top, 0, 0, new Size(width, height));
-
-        return bitmap;
-      }
-
-      return null;
-    }
-
-    public static Bitmap CaptureScreenshotFullWindow(IntPtr windowHandle)
-    {
+      int removeHeightPixels = 10;
+      int removeWidthPixels = 22;
+      int shiftTop = 6;
+      int shiftLeft = 0;
       var screenResolution = new ScreenResolution();
-      int screenWidth = screenResolution.ScreenWidth;
-      int screenHeight = screenResolution.ScreenHeight;
-      int titleBarHeight = screenResolution.GetTitleBarHeight();
+      int titleBarHeight = screenResolution.GetTitleBarHeight() + removeHeightPixels;
 
-      // Get the size of the taskbar
-      int taskbarHeight = Screen.PrimaryScreen.Bounds.Height - Screen.PrimaryScreen.WorkingArea.Height;
-
-      int screenShotHeight = screenHeight - taskbarHeight - titleBarHeight;
-
-      // Create a bitmap with the dimensions of the window
-      Bitmap bitmap = new Bitmap(screenWidth, screenShotHeight, PixelFormat.Format32bppArgb);
-
-      // Use Graphics.FromImage to get a Graphics object from the bitmap
-      using (Graphics graphics = Graphics.FromImage(bitmap))
+      if (!ScreenHandling.SetForegroundWindow(windowHandle))
       {
-        // Use the CopyFromScreen method to capture the screen
-        graphics.CopyFromScreen(0, titleBarHeight, 0, 0, new Size(screenWidth, screenShotHeight), CopyPixelOperation.SourceCopy);
+        throw new Exception("Can't get WindowHandle and put it to the foreground");
       }
+
+      if (WindowsHasNegativeValues(windowHandle))
+      {
+        WindowHandler.MoveWindowToLeftHalf(windowHandle);
+      }
+      
+      GetWindowRect(windowHandle, out RECT rect);
+
+      if (rect.Left < 0 || rect.Top < 0)
+      {
+        throw new Exception("Can't get WindowHandle");
+      }
+      
+      int width = rect.Right - rect.Left;
+      int height = rect.Bottom - rect.Top;
+
+      width = (int)(width * screenResolution.ScalingFactor) - removeWidthPixels;
+      height = (int)(height * screenResolution.ScalingFactor) - titleBarHeight - removeHeightPixels;
+
+      var bitmap = new Bitmap(width, height);
+      var graphics = Graphics.FromImage(bitmap);
+
+      graphics.CopyFromScreen(((int)(rect.Left * screenResolution.ScalingFactor) + (int)(removeWidthPixels / 2)) + shiftLeft,
+                              (int)((rect.Top * screenResolution.ScalingFactor) + titleBarHeight) + shiftTop, 0, 0,
+                              new Size(width, height));
 
       return bitmap;
     }
+
+    private static bool WindowsHasNegativeValues(nint windowHandle)
+    {
+      bool hasNegativeLocations = false;
+      GetWindowRect(windowHandle, out RECT rect);
+      if (rect.Left < 0 || rect.Top < 0)
+      {
+        hasNegativeLocations = true;
+      }
+
+      return hasNegativeLocations;
+    }
+
 
 
     public static void SaveScreenshot(Bitmap bitmap, string windowName)

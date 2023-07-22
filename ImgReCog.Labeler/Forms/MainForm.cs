@@ -27,8 +27,10 @@ namespace ImgReCog.Labeler.Forms
     private MenuStrip menuStrip;
     private ToolStripTextBox intervalTextBox;
     private ToolStripComboBox windowsComboBox;
-    private ToolStripButton startCaptureButton;
-    private ToolStripButton stopCaptureButton;
+    private ToolStripMenuItem captureOptionsMenuItem;
+    private ToolStripMenuItem startWindowCaptureMenuItem;
+    private ToolStripMenuItem startFullscreenCaptureMenuItem;
+    private ToolStripMenuItem stopCaptureMenuItem;
     private FlowLayoutPanel flowLayoutPanel;
     private Timer captureTimer;
 
@@ -38,34 +40,46 @@ namespace ImgReCog.Labeler.Forms
       Width = 800;
       Height = 600;
 
-      menuStrip = new MenuStrip();
-      intervalTextBox = new ToolStripTextBox();
-      windowsComboBox = new ToolStripComboBox();
-      startCaptureButton = new ToolStripButton("Start Capture");
-      stopCaptureButton = new ToolStripButton("Stop Capture");
-
       flowLayoutPanel = new FlowLayoutPanel();
       captureTimer = new Timer();
 
-      menuStrip.Items.Add(new ToolStripLabel("Interval:"));
-      menuStrip.Items.Add(intervalTextBox);
-      menuStrip.Items.Add(new ToolStripLabel("Window:"));
-      menuStrip.Items.Add(windowsComboBox);
-      menuStrip.Items.Add(startCaptureButton);
-      menuStrip.Items.Add(stopCaptureButton);
-
-      ToolStripButton deleteScreenshotsButton = new ToolStripButton("Delete Screenshots");
-      menuStrip.Items.Add(deleteScreenshotsButton);
-      deleteScreenshotsButton.Click += DeleteScreenshotsButton_Click;
+      CreateMenu();
 
       flowLayoutPanel.Dock = DockStyle.Fill;
 
       Controls.Add(menuStrip);
       Controls.Add(flowLayoutPanel);
 
-      startCaptureButton.Click += StartCaptureButton_Click;
-      stopCaptureButton.Click += StopCaptureButton_Click;
       captureTimer.Tick += CaptureTimer_Tick;
+    }
+
+    private void CreateMenu()
+    {
+      menuStrip = new MenuStrip();
+      intervalTextBox = new ToolStripTextBox();
+      windowsComboBox = new ToolStripComboBox();
+      captureOptionsMenuItem = new ToolStripMenuItem("Capture options");
+      startWindowCaptureMenuItem = new ToolStripMenuItem("Start Window capture");
+      startFullscreenCaptureMenuItem = new ToolStripMenuItem("Start fullscreen Windows capture");
+      stopCaptureMenuItem = new ToolStripMenuItem("Stop recording");
+
+      menuStrip.Items.Add(new ToolStripLabel("Interval:"));
+      menuStrip.Items.Add(intervalTextBox);
+      menuStrip.Items.Add(new ToolStripLabel("Window:"));
+      menuStrip.Items.Add(windowsComboBox);
+      menuStrip.Items.Add(captureOptionsMenuItem);
+
+      captureOptionsMenuItem.DropDownItems.Add(startWindowCaptureMenuItem);
+      captureOptionsMenuItem.DropDownItems.Add(startFullscreenCaptureMenuItem);
+      captureOptionsMenuItem.DropDownItems.Add(stopCaptureMenuItem);
+
+      ToolStripButton deleteScreenshotsButton = new ToolStripButton("Delete Screenshots");
+      menuStrip.Items.Add(deleteScreenshotsButton);
+      deleteScreenshotsButton.Click += DeleteScreenshotsButton_Click;
+
+      startWindowCaptureMenuItem.Click += StartWindowCaptureMenuItem_Click;
+      startFullscreenCaptureMenuItem.Click += StartFullscreenCaptureMenuItem_Click;
+      stopCaptureMenuItem.Click += StopCaptureMenuItem_Click;
     }
 
     protected override void OnShown(EventArgs e)
@@ -118,7 +132,6 @@ namespace ImgReCog.Labeler.Forms
       LoadImages();
     }
 
-
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
       base.OnFormClosing(e);
@@ -146,42 +159,55 @@ namespace ImgReCog.Labeler.Forms
       }
     }
 
-    private void StartCaptureButton_Click(object sender, EventArgs e)
+    private void StartWindowCaptureMenuItem_Click(object sender, EventArgs e)
     {
       int interval = string.IsNullOrEmpty(intervalTextBox.Text) ? 5 : int.Parse(intervalTextBox.Text);
       captureTimer.Interval = interval * 1000;
       captureTimer.Start();
     }
 
-    private void StopCaptureButton_Click(object sender, EventArgs e)
+    private void StartFullscreenCaptureMenuItem_Click(object sender, EventArgs e)
+    {
+      int interval = string.IsNullOrEmpty(intervalTextBox.Text) ? 5 : int.Parse(intervalTextBox.Text);
+      captureTimer.Interval = interval * 1000;
+      captureTimer.Start();
+      WindowState = FormWindowState.Minimized;
+    }
+
+    private void StopCaptureMenuItem_Click(object sender, EventArgs e)
     {
       captureTimer.Stop();
     }
 
     private void CaptureTimer_Tick(object sender, EventArgs e)
     {
-      string processName = windowsComboBox.SelectedItem.ToString();
-      Process[] processes = Process.GetProcessesByName(processName);
-
-      if (processes.Length > 0)
+      try
       {
-        Process targetProcess = processes[0];
+        string processName = windowsComboBox.SelectedItem.ToString();
+        var process = Process.GetProcessesByName(processName).Where(p => !string.IsNullOrWhiteSpace(p.MainWindowTitle)).FirstOrDefault();
+        if (process != null)
+        {
+          IntPtr windowHandle = process.MainWindowHandle;
 
-        // Minimize the application window
-        this.WindowState = FormWindowState.Minimized;
-
-        // Allow the window to fully minimize
-        Application.DoEvents();
-
-        // Bring the target window to the foreground
-        ScreenHandling.SetForegroundWindow(targetProcess.MainWindowHandle);
-
-        // Allow the target window to fully come to the foreground
-        Application.DoEvents();
-
-        IntPtr windowHandle = targetProcess.MainWindowHandle;
-        Bitmap screenshot = ScreenHandling.CaptureScreenshotFullWindow(windowHandle);
-        ScreenHandling.SaveScreenshot(screenshot, processName);
+          if (this.WindowState == FormWindowState.Minimized)
+          {
+            WindowHandler.MaximizeWindow(process);
+            Bitmap screenshot = ScreenHandling.CaptureWindowsScreenshot(windowHandle);
+            ScreenHandling.SaveScreenshot(screenshot, processName);
+          }
+          else
+          {
+            Bitmap screenshot = ScreenHandling.CaptureWindowsScreenshot(windowHandle);
+            ScreenHandling.SaveScreenshot(screenshot, processName);
+          }
+        }
+      }
+      catch (Exception ex)
+      {
+        captureTimer.Stop();
+        this.Focus();
+        this.Activate();
+        MessageBox.Show(ex.Message);
       }
     }
 
